@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; --ok: #22c55e; --bg: #0b1220; --panel: #111c33; --line: #1e3a5f; }
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Segoe UI", Arial, sans-serif; }
+  #root { background: var(--bg); color: #f8fafc; border: 2px solid var(--line); border-radius: 14px; padding: 10px; }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+  /* join screen */
+  #join { text-align: center; padding: 26px 12px; }
+  #join h2 { margin: 0 0 6px; font-size: 1.5rem; }
+  #join p { margin: 0 auto 14px; max-width: 520px; color: #cbd5e1; }
+  #joinbtn { font-size: 1.2rem; font-weight: 800; padding: 14px 28px; border-radius: 12px; border: 0; background: #2563eb; color: #fff; }
+  #joinbtn:disabled { background: #334155; cursor: wait; }
+  #jstatus { margin-top: 10px; min-height: 1.3rem; color: #fbbf24; font-weight: 600; }
+
+  /* top bar */
+  #topbar { display: flex; justify-content: space-between; align-items: center; padding: 2px 4px 8px; font-size: .95rem; color: #cbd5e1; }
+  #live { color: #fca5a5; font-weight: 700; }
+
+  /* tiles */
+  #grid { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(280px, 520px)); justify-content: center; }
+  #grid.spk { grid-template-columns: minmax(0, 1fr) 230px; justify-content: stretch; }
+  .tile { position: relative; background: #020617; border-radius: 12px; overflow: hidden; aspect-ratio: 16 / 9; border: 3px solid transparent;
+    transition: border-color .15s; }
+  .tile.speaking { border-color: var(--ok); }
+  .tile video, .tile canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .tile.local video, .tile.local canvas { transform: scaleX(-1); }
+  .tile.novideo video, .tile.novideo canvas { visibility: hidden; }
+  .avatar { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; }
+  .tile.novideo .avatar { display: flex; }
+  .avatar span { width: 25%; aspect-ratio: 1; border-radius: 50%; background: #334155; display: flex; align-items: center;
+    justify-content: center; font-size: 2.2rem; font-weight: 800; color: #e2e8f0; }
+  .nm { position: absolute; left: 8px; bottom: 8px; background: rgba(15, 23, 42, .78); padding: 3px 10px; border-radius: 8px;
+    font-weight: 700; font-size: .95rem; max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bd { position: absolute; right: 8px; top: 8px; display: flex; gap: 6px; font-size: 1.3rem; }
+  .st { position: absolute; left: 8px; top: 8px; background: rgba(245, 158, 11, .92); color: #1c1100; padding: 2px 8px;
+    border-radius: 8px; font-size: .8rem; font-weight: 700; display: none; }
+  .tcap { position: absolute; left: 6px; right: 6px; bottom: 40px; text-align: center; font-size: 1rem; font-weight: 700;
+    color: #fff; text-shadow: 0 0 4px #000, 0 0 4px #000; display: none; }
+  .tcap span { background: rgba(0, 0, 0, .7); padding: 2px 8px; border-radius: 6px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  .tile.big { grid-column: 1; max-height: none; }
+  .tile.small { grid-column: 2; }
+  .tile.small .avatar span { font-size: 1.2rem; }
+  #grid.audio { grid-template-columns: 1fr; }
+  #grid.audio .tile { aspect-ratio: auto; height: 58px; }
+  #grid.audio video { display: none; }
+  #grid.audio .avatar { display: flex; justify-content: flex-start; padding-left: 12px; }
+  #grid.audio .avatar span { width: 38px; font-size: 1rem; }
+  #grid.audio .nm { left: 62px; bottom: 16px; }
+
+  /* captions bar (live subtitles for everybody) */
+  #capbar { margin-top: 8px; background: #000; border: 2px solid #334155; border-radius: 10px; padding: 8px 12px; min-height: 2.6rem;
+    font-size: 1.25rem; font-weight: 700; line-height: 1.35; }
+  #capbar .who { color: #facc15; font-size: .9rem; margin-right: 8px; text-transform: uppercase; letter-spacing: .5px; }
+  #capbar .sign { color: #7dd3fc; }
+  #capbar .idle { color: #64748b; font-weight: 500; font-style: italic; font-size: 1rem; }
+
+  /* toolbar */
+  #toolbar { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin-top: 10px; padding: 8px;
+    background: #172033; border-radius: 12px; }
+  .tb { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 74px; padding: 6px 10px; border-radius: 10px;
+    border: 0; background: transparent; color: #e2e8f0; font-size: .8rem; }
+  .tb .ic { font-size: 1.5rem; line-height: 1.2; }
+  .tb:hover { background: #24304a; }
+  .tb.off { color: #fca5a5; }
+  .tb.off .ic { opacity: .55; }
+  .tb[aria-pressed="true"]:not(.off) { background: #1d4ed8; }
+  #status { text-align: center; font-size: .95rem; min-height: 1.3rem; margin-top: 6px; color: #cbd5e1; }
+
+  /* sign panel */
+  #signpanel { margin-top: 10px; background: var(--panel); border-radius: 10px; padding: 10px 12px; }
+  #signpanel .lbl { font-size: .9rem; color: #7dd3fc; }
+  #sentence { font-size: 1.5rem; font-weight: 700; min-height: 2rem; word-break: break-word; }
+  #shape { font-size: .9rem; color: #cbd5e1; min-height: 1.1rem; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+  .btn { font-weight: 700; padding: 9px 14px; border-radius: 10px; border: 2px solid #475569; background: #1e293b; color: #e2e8f0; }
+  .btn.pri { background: #0ea5e9; border-color: #7dd3fc; color: #04141f; }
+  details { margin-top: 8px; background: #0f172a; border-radius: 8px; padding: 6px 10px; }
+  summary { cursor: pointer; font-weight: 700; color: #7dd3fc; }
+  input, select { font: inherit; padding: 7px; border-radius: 8px; border: 2px solid #475569; background: #020617; color: #f8fafc; }
+  .words { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .w { background: #1e293b; border-radius: 8px; padding: 3px 8px; font-size: .9rem; }
+  .w button { padding: 0 6px; margin-left: 6px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; border-radius: 6px; }
+  table { border-collapse: collapse; font-size: .9rem; margin-top: 6px; }
+  td { padding: 2px 10px 2px 0; vertical-align: top; }
+  #recbadge { display: none; background: #ef4444; color: #fff; font-weight: 800; padding: 3px 10px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<div id="root" role="region" aria-label="Live video meeting">
+
+  <div id="join">
+    <h2 id="jtitle">Join the video meeting</h2>
+    <p id="jtext">Everyone in the meeting will see and hear you. You can turn your camera or microphone off at any time.</p>
+    <button id="joinbtn" type="button" disabled>Loading…</button>
+    <div id="jstatus" role="status" aria-live="polite"></div>
+  </div>
+
+  <div id="call" hidden>
+    <div id="topbar"><span id="count">1 in meeting</span><span id="live">● LIVE</span></div>
+    <div id="grid"></div>
+    <div id="capbar" aria-live="polite"><span class="idle">Live subtitles appear here for everyone — spoken words and signed words.</span></div>
+    <div id="toolbar" role="toolbar" aria-label="Meeting controls">
+      <button class="tb" id="bMic" type="button" aria-pressed="true"><span class="ic">🎤</span><span class="tx">Audio</span></button>
+      <button class="tb" id="bCam" type="button" aria-pressed="true"><span class="ic">🎥</span><span class="tx">Video</span></button>
+      <button class="tb" id="bView" type="button" aria-pressed="false"><span class="ic">▦</span><span class="tx">Speaker view</span></button>
+      <button class="tb" id="bCaps" type="button" aria-pressed="true"><span class="ic">💬</span><span class="tx">Subtitles</span></button>
+      <button class="tb" id="bSpeech" type="button" aria-pressed="false"><span class="ic">🗣️</span><span class="tx">My speech → text</span></button>
+      <button class="tb" id="bHand" type="button" aria-pressed="false"><span class="ic">✋</span><span class="tx">Raise hand</span></button>
+    </div>
+    <div id="status" role="status" aria-live="polite"></div>
+
+    <div id="signpanel" hidden>
+      <div class="lbl">🖐️ Your signing, turned into subtitles for everyone (live)</div>
+      <div id="sentence" aria-live="polite">…</div>
+      <div id="shape"></div>
+      <div class="row">
+        <button class="btn" id="sUndo" type="button">⌫ Undo word</button>
+        <button class="btn" id="sClear" type="button">🗑️ Clear</button>
+        <button class="btn pri" id="sSend" type="button">📤 Send now</button>
+        <span id="recbadge"></span>
+      </div>
+      <details id="teach">
+        <summary>➕ Teach the app your own word (best accuracy)</summary>
+        <p style="margin:6px 0">Type a word, press <b>Record sample</b>, sign it after the 3-2-1 countdown. Record it 3 times.</p>
+        <div class="row">
+          <input id="newword" type="text" placeholder="e.g. meeting" aria-label="Word to teach" maxlength="30">
+          <button class="btn" id="recbtn" type="button">🔴 Record sample</button>
+        </div>
+        <div id="mywords" class="words"></div>
+        <div style="margin-top:8px"><label for="sens">Matching strictness: </label>
+          <select id="sens"><option value="0.22">Strict</option><option value="0.30" selected>Normal</option><option value="0.40">Relaxed</option></select></div>
+      </details>
+      <details>
+        <summary>📖 Built-in signs</summary>
+        <table>
+          <tr><td><b>HELLO</b></td><td>open hand, wave side to side</td></tr>
+          <tr><td><b>STOP</b></td><td>open hand held still ~1 s</td></tr>
+          <tr><td><b>PLEASE</b></td><td>open hand moving in a circle</td></tr>
+          <tr><td><b>THANK YOU</b></td><td>open hand sweeping downward</td></tr>
+          <tr><td><b>YES</b></td><td>fist nodding up and down</td></tr>
+          <tr><td><b>NO</b></td><td>index finger up, wagging</td></tr>
+          <tr><td><b>YOU</b></td><td>index finger up, held still</td></tr>
+          <tr><td><b>GOOD / BAD</b></td><td>thumb up / thumb down, held still</td></tr>
+          <tr><td><b>I LOVE YOU</b></td><td>thumb + index + little finger out, still</td></tr>
+          <tr><td><b>WATER</b></td><td>index + middle + ring fingers up, still</td></tr>
+        </table>
+        <p style="margin:6px 0">Lower your hand for ~3 seconds and the sentence is finished.</p>
+      </details>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // ================================================================ Streamlit plumbing
+  function post(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*"); }
+  function sendValue(v) { post("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+  var $ = function (id) { return document.getElementById(id); };
+  var root = $("root");
+  function setHeight() {
+    var h = Math.ceil(root.getBoundingClientRect().height + 12);
+    post("streamlit:setFrameHeight", { height: Math.max(h, joined ? (audioOnly() ? 230 : 520) : 230) });
+  }
+
+  var args = { me: { name: "Me", role: "normal", uid: "" }, peers: [], signals: [], ack: "", cfg: {}, ice_servers: [], sentence_pause: 3 };
+  var cfg = function () { return args.cfg || {}; };
+  function audioOnly() { return cfg().show_video === false; }
+  var DLOG = [], T0 = Date.now();
+  function dbg(m) { DLOG.push(((Date.now() - T0) / 1000).toFixed(1) + "s " + m); if (DLOG.length > 80) DLOG.shift(); }
+  var SID = "s" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+  // outbound events are batched and acknowledged by Python (nothing is lost if two events happen at once)
+  var outbox = [], waitingAck = null, sentAt = 0, batchNo = 0;
+  function queue(ev) { outbox.push(ev); flush(); }
+  function flush() {
+    if (!outbox.length) return;
+    if (waitingAck && Date.now() - sentAt < 4000) return;
+    var b = { id: SID + "-" + (++batchNo), sid: SID, events: outbox.splice(0, 40) };
+    waitingAck = b.id; sentAt = Date.now(); sendValue(b);
+  }
+  setInterval(flush, 300);
+
+  // ================================================================ state
+  var joined = false, localStream = null, micOn = true, camOn = true, handUp = false, capsVisible = true;
+  var peers = {}, tiles = {}, seen = {}, activeKey = "me", mode = "grid", lastActiveChange = 0;
+  var caps = {};                       // key -> {name, text, final, kind, t}
+  var statusT = 0;
+  function status(t) { $("status").textContent = t || ""; clearTimeout(statusT); if (t) statusT = setTimeout(function () { $("status").textContent = ""; }, 6000); setHeight(); }
+
+  var ICONS = { manager: "👑", normal: "👤", blind: "👁️", deaf: "🧏", mute: "🖐️" };
+
+  // ================================================================ tiles
+  function makeTile(key, name, role, local) {
+    var el = document.createElement("div");
+    el.className = "tile" + (local ? " local" : "") + " novideo";
+    var v = document.createElement("video"); v.playsInline = true; v.autoplay = true; if (local) v.muted = true;
+    var av = document.createElement("div"); av.className = "avatar";
+    var sp = document.createElement("span"); sp.textContent = (name || "?").trim().charAt(0).toUpperCase() || "?"; av.appendChild(sp);
+    var nm = document.createElement("div"); nm.className = "nm";
+    var bd = document.createElement("div"); bd.className = "bd";
+    var st = document.createElement("div"); st.className = "st";
+    var tc = document.createElement("div"); tc.className = "tcap"; var tcs = document.createElement("span"); tc.appendChild(tcs);
+    [v, av, st, tc, nm, bd].forEach(function (n) { el.appendChild(n); });
+    var t = { key: key, el: el, video: v, nm: nm, bd: bd, st: st, tc: tc, tcs: tcs, name: name, role: role, local: !!local, mic: true, cam: true, hand: false };
+    setNameLabel(t); $("grid").appendChild(el); tiles[key] = t; layout(); return t;
+  }
+  function setNameLabel(t) { t.nm.textContent = (ICONS[t.role] || "") + " " + (t.local ? "You (" + t.name + ")" : t.name) + (t.mic ? "" : "  🔇"); }
+  function setBadges(t) { t.bd.textContent = (t.hand ? "✋" : ""); }
+  function removeTile(key) { var t = tiles[key]; if (!t) return; t.el.remove(); delete tiles[key]; delete caps[key]; layout(); }
+  function tileList() { return Object.keys(tiles).map(function (k) { return tiles[k]; }); }
+
+  function layout() {
+    var grid = $("grid"), list = tileList();
+    $("count").textContent = list.length + (list.length === 1 ? " person" : " people") + " in meeting";
+    if (audioOnly()) { grid.className = "audio"; return; }
+    if (mode === "spk" && list.length > 1) {
+      grid.className = "spk";
+      var act = tiles[activeKey] || list[0];
+      list.forEach(function (t) {
+        t.el.classList.toggle("big", t === act); t.el.classList.toggle("small", t !== act);
+        t.el.style.gridRow = t === act ? "1 / span " + Math.max(1, list.length - 1) : "";
+      });
+    } else {
+      grid.className = "";
+      list.forEach(function (t) { t.el.classList.remove("big", "small"); t.el.style.gridRow = ""; });
+    }
+    setHeight();
+  }
+
+  function updateVideoState(t) {
+    var has = false;
+    if (t.local) { var vt = localStream && localStream.getVideoTracks()[0]; has = !!(vt && vt.readyState === "live" && camOn); }
+    else { has = !!(t.vtrack && t.vtrack.readyState === "live" && !t.vtrack.muted && t.cam !== false); }
+    t.el.classList.toggle("novideo", !has);
+  }
+
+  // ================================================================ captions (live subtitles for everyone)
+  function showCap(key, name, text, final, kind) {
+    caps[key] = { name: name, text: text, final: !!final, kind: kind || "speech", t: Date.now() };
+    renderCaps();
+  }
+  function renderCaps() {
+    var now = Date.now(), list = Object.keys(caps).map(function (k) { return [k, caps[k]]; });
+    list.forEach(function (kv) { if (now - kv[1].t > 7000) delete caps[kv[0]]; });
+    Object.keys(tiles).forEach(function (k) {
+      var t = tiles[k], c = caps[k];
+      if (c && capsVisible && !audioOnly()) { t.tcs.textContent = c.text; t.tc.style.display = "block"; } else { t.tc.style.display = "none"; }
+    });
+    var bar = $("capbar"); bar.textContent = "";
+    var live = Object.keys(caps).map(function (k) { return caps[k]; }).sort(function (a, b) { return a.t - b.t; }).slice(-2);
+    if (!capsVisible) { bar.style.display = "none"; setHeight(); return; }
+    bar.style.display = "block";
+    if (!live.length) { var i = document.createElement("span"); i.className = "idle"; i.textContent = "Live subtitles appear here for everyone — spoken words and signed words."; bar.appendChild(i); }
+    live.forEach(function (c) {
+      var d = document.createElement("div"), w = document.createElement("span"), x = document.createElement("span");
+      w.className = "who"; w.textContent = (c.kind === "sign" ? "🖐️ " : "🎤 ") + c.name + ":"; x.textContent = c.text; if (c.kind === "sign") x.className = "sign";
+      d.appendChild(w); d.appendChild(x); bar.appendChild(d);
+    });
+    setHeight();
+  }
+  setInterval(renderCaps, 700);
+
+  // ================================================================ data channel (instant subtitles, hand, mic/cam state)
+  function bcast(obj) {
+    var s = JSON.stringify(obj);
+    Object.keys(peers).forEach(function (k) { var d = peers[k].dc; if (d && d.readyState === "open") { try { d.send(s); } catch (e) { /* ignore */ } } });
+  }
+  function sendState(dc) {
+    var o = JSON.stringify({ t: "state", mic: micOn && hasAudio(), cam: camOn && hasVideo(), hand: handUp });
+    try { dc.send(o); } catch (e) { /* ignore */ }
+  }
+  function setupDC(p, dc) {
+    p.dc = dc;
+    dc.onopen = function () { sendState(dc); };
+    dc.onmessage = function (e) {
+      var m; try { m = JSON.parse(e.data); } catch (x) { return; }
+      var t = tiles[p.sid]; if (!t || !m) return;
+      if (m.t === "cap" && typeof m.text === "string") showCap(p.sid, p.name, m.text.slice(0, 400), m.final, m.kind);
+      else if (m.t === "state") { t.mic = m.mic !== false; t.cam = m.cam !== false; t.hand = !!m.hand; setNameLabel(t); setBadges(t); updateVideoState(t); }
+    };
+  }
+
+  // ================================================================ WebRTC mesh
+  function videoTrack() { return localStream && localStream.getVideoTracks()[0] || null; }
+  function audioTrack() { return localStream && localStream.getAudioTracks()[0] || null; }
+  function hasVideo() { return !!videoTrack(); }
+  function hasAudio() { return !!audioTrack(); }
+
+  function newPc(p) {
+    var pc = new RTCPeerConnection({ iceServers: args.ice_servers && args.ice_servers.length ? args.ice_servers : [{ urls: "stun:stun.l.google.com:19302" }] });
+    pc.ontrack = function (e) {
+      p.stream = p.stream || new MediaStream();
+      p.stream.addTrack(e.track);
+      var t = tiles[p.sid]; if (!t) return;
+      if (e.track.kind === "video") {
+        p.vtrack = e.track;
+        e.track.onunmute = function () { updateVideoState(t); }; e.track.onmute = function () { updateVideoState(t); };
+      }
+      t.video.srcObject = p.stream; var pr = t.video.play(); if (pr && pr.catch) pr.catch(function () {});
+      if (e.track.kind === "audio") watchLevel(p.sid, p.stream);
+      updateVideoState(t);
+    };
+    pc.ondatachannel = function (e) { setupDC(p, e.channel); };
+    pc.onconnectionstatechange = function () {
+      var t = tiles[p.sid]; if (!t) return;
+      var s = pc.connectionState;
+      t.st.style.display = (s === "connected" || s === "new") ? "none" : "block";
+      t.st.textContent = s === "connecting" ? "Connecting…" : (s === "disconnected" ? "Reconnecting…" : s === "failed" ? "Connection failed" : "");
+      if (s === "connected") { p.retries = 0; }
+    };
+    return pc;
+  }
+
+  function createPeer(info) {
+    var p = { sid: info.sid, name: info.name || "Participant", role: info.role || "normal", uid: info.uid || "", retries: 0 };
+    p.pc = newPc(p); p.initiator = SID < info.sid;
+    peers[info.sid] = p; makeTile(info.sid, p.name, p.role, false);
+    if (p.initiator) startOffer(p);
+    p.timer = setInterval(function () {
+      if (peers[p.sid] !== p) { clearInterval(p.timer); return; }
+      var waited = Date.now() - (p.offerAt || Date.now());
+      if (p.pc.connectionState !== "connected" && p.initiator && p.retries < 4 && !p.busy && waited > 30000) { p.retries++; resetPc(p); startOffer(p); }
+    }, 5000);
+    return p;
+  }
+  function resetPc(p) { dbg("resetPc " + p.name); try { p.pc.close(); } catch (e) { /* ignore */ } p.stream = null; p.vtrack = null; p.dc = null; p.pc = newPc(p); }
+  function removePeer(sid) {
+    var p = peers[sid]; if (!p) return;
+    clearInterval(p.timer); try { p.pc.close(); } catch (e) { /* ignore */ }
+    delete peers[sid]; removeTile(sid); status(p.name + " left the meeting.");
+  }
+  function syncPeers(list) {
+    var ids = {};
+    list.forEach(function (i) { ids[i.sid] = 1; if (!peers[i.sid]) createPeer(i); });
+    Object.keys(peers).forEach(function (s) { if (!ids[s]) removePeer(s); });
+  }
+
+  function waitIce(pc) {
+    return new Promise(function (res) {
+      if (pc.iceGatheringState === "complete") return res();
+      var done = false, t = setTimeout(fin, 1800);
+      function fin() { if (done) return; done = true; clearTimeout(t); pc.removeEventListener("icegatheringstatechange", chk); res(); }
+      function chk() { if (pc.iceGatheringState === "complete") fin(); }
+      pc.addEventListener("icegatheringstatechange", chk);
+    });
+  }
+  function sendSig(p, data) { data.name = args.me.name; data.role = args.me.role; queue({ t: "sig", to: p.sid, data: data }); }
+
+  function startOffer(p) {
+    p.busy = true; p.gen = (p.gen || 0) + 1; var gen = p.gen; p.offerAt = Date.now();
+    var pc = p.pc, vt = videoTrack(), at = audioTrack(), showV = cfg().show_video !== false;
+    setupDC(p, pc.createDataChannel("meta"));
+    if (vt) pc.addTransceiver(vt, { direction: "sendrecv", streams: [localStream] }); else pc.addTransceiver("video", { direction: showV ? "recvonly" : "inactive" });
+    if (at) pc.addTransceiver(at, { direction: "sendrecv", streams: [localStream] }); else pc.addTransceiver("audio", { direction: "recvonly" });
+    pc.createOffer().then(function (o) { return pc.setLocalDescription(o); }).then(function () { return waitIce(pc); })
+      .then(function () { dbg("offer -> " + p.name + " cands=" + ((pc.localDescription.sdp.match(/a=candidate/g) || []).length)); sendSig(p, { type: "offer", gen: gen, sdp: pc.localDescription.sdp }); p.busy = false; })
+      .catch(function (e) { p.busy = false; status("Could not start a connection: " + e); });
+  }
+
+  function acceptOffer(p, data) {
+    if (p.answeredGen === data.gen && p.answeredFrom === data.sdp.length) { dbg("duplicate offer ignored"); return; }
+    p.answeredGen = data.gen; p.answeredFrom = data.sdp.length;
+    if (p.pc.remoteDescription || p.pc.localDescription) resetPc(p);
+    var pc = p.pc;
+    pc.setRemoteDescription({ type: "offer", sdp: data.sdp }).then(function () {
+      pc.getTransceivers().forEach(function (t) {
+        var kind = t.receiver && t.receiver.track && t.receiver.track.kind;
+        if (kind === "video" && cfg().show_video === false) { t.direction = "inactive"; return; }
+        var lt = kind === "video" ? videoTrack() : audioTrack();
+        if (lt) { t.sender.replaceTrack(lt); if (t.sender.setStreams) t.sender.setStreams(localStream); t.direction = "sendrecv"; }
+        else t.direction = "recvonly";
+      });
+      return pc.createAnswer();
+    }).then(function (a) { return pc.setLocalDescription(a); }).then(function () { return waitIce(pc); })
+      .then(function () { dbg("answer -> " + p.name); sendSig(p, { type: "answer", gen: data.gen, sdp: pc.localDescription.sdp }); })
+      .catch(function (e) { status("Could not answer a connection: " + e); });
+  }
+
+  function onSignal(g) {
+    var d = g.data || {}, p = peers[g.frm]; dbg("recv " + d.type + " seq=" + g.seq + " from " + (p ? p.name : g.frm) + " sig=" + (p ? p.pc.signalingState : "-"));
+    if (!p) p = createPeer({ sid: g.frm, name: d.name, role: d.role });
+    if (d.type === "offer") acceptOffer(p, d);
+    else if (d.type === "answer" && d.gen !== p.gen) { dbg("stale answer ignored (gen " + d.gen + " vs " + p.gen + ")"); }
+    else if (d.type === "answer" && p.pc.signalingState === "have-local-offer") {
+      p.pc.setRemoteDescription({ type: "answer", sdp: d.sdp }).catch(function (e) { dbg("answer rejected " + e); status("Answer rejected: " + e); });
+    }
+  }
+  function handleSignals(list) {
+    (list || []).forEach(function (g) { if (seen[g.seq]) return; seen[g.seq] = 1; onSignal(g); });
+  }
+
+  // ================================================================ speaking indicator / active speaker
+  var AC = window.AudioContext || window.webkitAudioContext, actx = null, levels = {};
+  function watchLevel(key, stream) {
+    if (!AC || !stream.getAudioTracks().length) return;
+    try {
+      actx = actx || new AC();
+      var an = actx.createAnalyser(); an.fftSize = 512;
+      actx.createMediaStreamSource(new MediaStream([stream.getAudioTracks()[0]])).connect(an);
+      levels[key] = { an: an, buf: new Uint8Array(an.fftSize), v: 0 };
+    } catch (e) { /* analyser is optional */ }
+  }
+  setInterval(function () {
+    var best = null, bestV = 0.035, now = Date.now();
+    Object.keys(levels).forEach(function (k) {
+      var l = levels[k]; l.an.getByteTimeDomainData(l.buf);
+      var s = 0; for (var i = 0; i < l.buf.length; i++) { var x = (l.buf[i] - 128) / 128; s += x * x; }
+      l.v = Math.sqrt(s / l.buf.length);
+      var t = tiles[k]; if (t) { var talking = l.v > 0.035 && (t.local ? micOn : t.mic !== false); t.el.classList.toggle("speaking", talking); if (talking && l.v > bestV) { best = k; bestV = l.v; } }
+    });
+    if (best && best !== activeKey && now - lastActiveChange > 2000) { activeKey = best; lastActiveChange = now; if (mode === "spk") layout(); }
+  }, 150);
+
+  // ================================================================ speech -> live subtitles (Web Speech API, Chrome/Edge)
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, speechOn = false;
+  function startSpeech() {
+    if (!SR) { status("Live speech subtitles need Chrome or Edge."); return false; }
+    if (rec) return true;
+    rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = cfg().lang || "en-US";
+    rec.onresult = function (e) {
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var r = e.results[i], txt = (r[0].transcript || "").trim(); if (!txt) continue;
+        showCap("me", args.me.name, txt, r.isFinal, "speech");
+        bcast({ t: "cap", text: txt, final: r.isFinal, kind: "speech" });
+        if (r.isFinal) queue({ t: "caption", text: txt, conf: r[0].confidence || 0.85 });
+      }
+    };
+    rec.onend = function () { if (speechOn && micOn) setTimeout(function () { try { rec.start(); } catch (e) { /* already running */ } }, 250); };
+    rec.onerror = function (e) {
+      var er = e.error;
+      if (er === "not-allowed" || er === "service-not-allowed") { speechOn = false; setSpeechBtn(); status("Speech subtitles are blocked by the browser. Allow the microphone for this site (lock icon in the address bar)."); }
+      else if (er === "network") { status("Speech subtitles cannot reach the browser's speech service. Check your internet / VPN, or use Chrome."); }
+      else if (er === "language-not-supported") { speechOn = false; setSpeechBtn(); status("This browser does not support the speech language '" + rec.lang + "'. Set VOICE_LANG=en-US in .env."); }
+      else if (er === "audio-capture") { status("Speech subtitles cannot hear a microphone. Check which mic the browser is using."); }
+      /* "no-speech" / "aborted" are normal pauses; recognition restarts by itself */
+    };
+    rec.onstart = function () { status("🎤 Listening: your speech becomes subtitles (language " + rec.lang + ")."); };
+    try { rec.start(); } catch (e) { /* ignore */ }
+    return true;
+  }
+  function stopSpeech() { if (rec) { var r = rec; rec = null; try { r.onend = null; r.stop(); } catch (e) { /* ignore */ } } }
+  function setSpeechBtn() { var b = $("bSpeech"); b.setAttribute("aria-pressed", speechOn ? "true" : "false"); b.classList.toggle("off", !speechOn); }
+
+  // ================================================================ sign engine: hand features (pure, unit-tested)
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function buildHand(lm) {
+    var w = lm[0], size = Math.max(dist(w, lm[9]), 1e-4);
+    var ext = [dist(lm[4], lm[17]) > dist(lm[3], lm[17]) * 1.1];
+    [[6, 8], [10, 12], [14, 16], [18, 20]].forEach(function (p) { ext.push(dist(lm[p[1]], w) > dist(lm[p[0]], w) * 1.05); });
+    var norm = [];
+    for (var i = 0; i < 21; i++) { norm.push((lm[i].x - w.x) / size, (lm[i].y - w.y) / size); }
+    var tx = lm[4].x - lm[2].x, ty = lm[4].y - lm[2].y, tl = Math.hypot(tx, ty) || 1e-6;
+    return { ext: ext, size: size, cx: lm[9].x, cy: lm[9].y, norm: norm, thumbUp: ty < -0.7 * tl, thumbDown: ty > 0.7 * tl };
+  }
+  function buildFrame(lists, t) {
+    var hands = (lists || []).map(buildHand).sort(function (a, b) { return b.size - a.size; });
+    return { t: t, hand: hands[0] || null, hand2: hands[1] || null };
+  }
+  function swings(arr, thr) {
+    var dir = 0, ext = arr[0], n = 0;
+    for (var i = 1; i < arr.length; i++) {
+      var v = arr[i];
+      if (dir === 0) { if (v - ext > thr) { dir = 1; ext = v; } else if (ext - v > thr) { dir = -1; ext = v; } }
+      else if (dir === 1) { if (v > ext) ext = v; else if (ext - v > thr) { dir = -1; n++; ext = v; } }
+      else { if (v < ext) ext = v; else if (v - ext > thr) { dir = 1; n++; ext = v; } }
+    }
+    return n;
+  }
+  function loopArea(xs, ys) { var a = 0; for (var i = 0; i < xs.length; i++) { var j = (i + 1) % xs.length; a += xs[i] * ys[j] - xs[j] * ys[i]; } return Math.abs(a) / 2; }
+  function mode_(list) { var c = {}, best = null, bn = 0; list.forEach(function (k) { c[k] = (c[k] || 0) + 1; if (c[k] > bn) { bn = c[k]; best = k; } }); return best; }
+
+  function analyze(frames) {
+    var hs = frames.filter(function (f) { return f.hand; });
+    if (hs.length < 6 || frames.length < 6) return null;
+    var span = frames[frames.length - 1].t - frames[0].t;
+    if (span < 0.7 || hs.length / frames.length < 0.8) return null;
+    var s = hs.reduce(function (a, f) { return a + f.hand.size; }, 0) / hs.length;
+    var xs = hs.map(function (f) { return f.hand.cx / s; }), ys = hs.map(function (f) { return f.hand.cy / s; });
+    var xr = Math.max.apply(null, xs) - Math.min.apply(null, xs), yr = Math.max.apply(null, ys) - Math.min.apply(null, ys);
+    var dyNet = ys[ys.length - 1] - ys[0], sx = swings(xs, 0.35), sy = swings(ys, 0.3);
+    var still = xr < 0.7 && yr < 0.7 && span >= 0.95;
+    var rest = mode_(hs.map(function (f) { return f.hand.ext.slice(1).map(Number).join(""); }));
+    var thumbExt = hs.filter(function (f) { return f.hand.ext[0]; }).length > hs.length * 0.5;
+    var thumbUp = hs.filter(function (f) { return f.hand.thumbUp; }).length > hs.length * 0.6;
+    var thumbDown = hs.filter(function (f) { return f.hand.thumbDown; }).length > hs.length * 0.6;
+    var W = function (word, c) { return { word: word, conf: c || 0.85 }; };
+    if (rest === "1111") {
+      var circ = xr > 0.9 && yr > 0.9 && sx >= 1 && sy >= 1 && loopArea(xs, ys) / (xr * yr) > 0.35;
+      if (circ) return W("PLEASE");
+      if (sx >= 2 && xr > 1.0) return W("HELLO");
+      if (dyNet > 1.5 && xr < 1.4 && sy === 0) return W("THANK YOU", 0.8);
+      if (still) return W("STOP");
+    } else if (rest === "0000") {
+      if (thumbExt && thumbUp && still) return W("GOOD");
+      if (thumbExt && thumbDown && still) return W("BAD");
+      if (!thumbExt && sy >= 2 && yr > 0.8 && yr > xr) return W("YES");
+    } else if (rest === "1000") {
+      if (sx >= 2 && xr > 0.9) return W("NO");
+      if (still) return W("YOU");
+    } else if (rest === "1001" && thumbExt) {
+      if (still) return W("I LOVE YOU", 0.9);
+    } else if (rest === "1110") {
+      if (still) return W("WATER", 0.8);
+    }
+    return null;
+  }
+
+  var N = 16, DIM = 86, TRAJ_W = 2.5;
+  function featureSeq(frames) {
+    var hs = frames.filter(function (f) { return f.hand; });
+    if (hs.length < 3) return null;
+    var s = hs.reduce(function (a, f) { return a + f.hand.size; }, 0) / hs.length, bx = hs[0].hand.cx, by = hs[0].hand.cy, out = [];
+    for (var i = 0; i < N; i++) {
+      var f = frames[Math.round(i * (frames.length - 1) / (N - 1))], v = [], k;
+      for (k = 0; k < 42; k++) v.push(f.hand ? f.hand.norm[k] : 0);
+      for (k = 0; k < 42; k++) v.push(f.hand2 ? f.hand2.norm[k] : 0);
+      v.push(f.hand ? TRAJ_W * (f.hand.cx - bx) / s : 0, f.hand ? TRAJ_W * (f.hand.cy - by) / s : 0);
+      out.push(v);
+    }
+    return out;
+  }
+  function seqDist(a, b) { var sum = 0; for (var i = 0; i < N; i++) for (var k = 0; k < DIM; k++) { var d = a[i][k] - b[i][k]; sum += d * d; } return Math.sqrt(sum / (N * DIM)); }
+  function matchCustom(allFrames, templates, thr, now) {
+    var words = Object.keys(templates); if (!words.length) return null;
+    var best = null, scores = {};
+    [0.9, 1.3, 1.8].forEach(function (len) {
+      var win = allFrames.filter(function (f) { return f.t >= now - len; });
+      if (win.length < 6) return;
+      if (win.filter(function (f) { return f.hand; }).length / win.length < 0.7) return;
+      var seq = featureSeq(win); if (!seq) return;
+      words.forEach(function (w) { templates[w].forEach(function (t) { var d = seqDist(seq, t); if (scores[w] === undefined || d < scores[w]) scores[w] = d; }); });
+    });
+    words.forEach(function (w) { if (scores[w] !== undefined && (!best || scores[w] < scores[best])) best = w; });
+    if (!best || scores[best] > thr) return null;
+    var others = words.filter(function (w) { return w !== best && scores[w] !== undefined; });
+    if (others.length && scores[best] > 0.85 * Math.min.apply(null, others.map(function (w) { return scores[w]; }))) return null;
+    return { word: best.toUpperCase(), conf: Math.max(0.5, Math.min(0.99, 1 - scores[best] / (thr * 1.6))) };
+  }
+
+  var templates = {}, memStore = null;
+  function loadTemplates() { try { templates = JSON.parse(localStorage.getItem("sign_words_v1") || "{}") || {}; } catch (e) { templates = memStore ? JSON.parse(memStore) : {}; } renderWords(); }
+  function saveTemplates() { var s = JSON.stringify(templates); try { localStorage.setItem("sign_words_v1", s); } catch (e) { memStore = s; } renderWords(); }
+  function renderWords() {
+    var box = $("mywords"); box.textContent = "";
+    Object.keys(templates).forEach(function (w) {
+      var d = document.createElement("span"); d.className = "w"; d.textContent = w + " (" + templates[w].length + ")";
+      var b = document.createElement("button"); b.type = "button"; b.textContent = "✕"; b.setAttribute("aria-label", "Delete " + w);
+      b.onclick = function () { delete templates[w]; saveTemplates(); }; d.appendChild(b); box.appendChild(d);
+    });
+    setHeight();
+  }
+
+  // ================================================================ sign engine: live words -> sentence -> subtitles to everyone
+  var landmarker = null, signRunning = false, raf = 0, lastVT = -1, sframes = [], words = [], confs = [];
+  var absentSince = null, lastHandT = 0, lastRun = 0, minT = 0, lastWord = null, needRelease = false, recording = false, recBuf = [], sigCanvas = null, sigCtx = null;
+  var CONNS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+  function sentenceText() { var t = words.join(" ").toLowerCase(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ""; }
+  function showSentence(final) {
+    var t = sentenceText(); $("sentence").textContent = t || "…"; setHeight();
+    if (t) { showCap("me", args.me.name, t, final, "sign"); bcast({ t: "cap", text: t, final: !!final, kind: "sign" }); }
+  }
+  function addWord(word, conf, now) {
+    words.push(word); confs.push(conf); lastWord = word; needRelease = true; minT = now; showSentence(false); status("Detected: " + word);
+  }
+  function finishSentence() {
+    if (!words.length) return;
+    var c = confs.length ? confs.reduce(function (a, b) { return a + b; }, 0) / confs.length : 0.85, w = words.slice();
+    showSentence(true);
+    queue({ t: "sign", words: w, conf: Math.round(c * 1000) / 1000 });
+    words = []; confs = []; lastWord = null; needRelease = false; $("sentence").textContent = "…"; setHeight();
+  }
+  function describe(h) {
+    if (!h) return "No hand in view";
+    var e = h.ext.slice(1).map(Number).join(""), names = { "1111": "open hand", "0000": h.ext[0] ? "thumb out" : "fist", "1000": "pointing finger",
+      "1110": "three fingers", "0001": "little finger", "1100": "two fingers", "1001": "horns / love sign" };
+    return "Hand shape: " + (names[e] || "fingers " + e);
+  }
+  function recognize(now) {
+    var win = sframes.filter(function (f) { return f.t >= Math.max(minT, now - 1.6); });
+    var res = matchCustom(sframes.filter(function (f) { return f.t >= minT; }), templates, parseFloat($("sens").value), now) || analyze(win);
+    if (!res) return;
+    if (res.word === lastWord && needRelease) return;           // same sign still being held / waved: count it once
+    addWord(res.word, res.conf, now);
+  }
+  function drawHands(lists, video) {
+    if (!sigCtx) return;
+    if (sigCanvas.width !== (video.videoWidth || 640)) { sigCanvas.width = video.videoWidth || 640; sigCanvas.height = video.videoHeight || 360; }
+    sigCtx.clearRect(0, 0, sigCanvas.width, sigCanvas.height);
+    lists.forEach(function (lm) {
+      sigCtx.strokeStyle = "#22c55e"; sigCtx.lineWidth = 3;
+      CONNS.forEach(function (c) { sigCtx.beginPath(); sigCtx.moveTo(lm[c[0]].x * sigCanvas.width, lm[c[0]].y * sigCanvas.height); sigCtx.lineTo(lm[c[1]].x * sigCanvas.width, lm[c[1]].y * sigCanvas.height); sigCtx.stroke(); });
+      sigCtx.fillStyle = "#facc15"; lm.forEach(function (p) { sigCtx.beginPath(); sigCtx.arc(p.x * sigCanvas.width, p.y * sigCanvas.height, 4, 0, 6.3); sigCtx.fill(); });
+    });
+  }
+  function onResult(lists, t, video) {
+    var f = buildFrame(lists, t); sframes.push(f);
+    while (sframes.length && sframes[0].t < t - 3.5) sframes.shift();
+    if (recording) recBuf.push(f);
+    if (video) drawHands(lists, video);
+    $("shape").textContent = describe(f.hand);
+    if (!f.hand) {                                                   // hand lowered for 0.4 s: the same word may be signed again
+      if (absentSince === null) absentSince = t;
+      if (needRelease && t - absentSince >= 0.4) { needRelease = false; minT = t; }
+    } else absentSince = null;
+    if (f.hand) lastHandT = t; else if (words.length && t - lastHandT >= (args.sentence_pause || 3)) finishSentence();
+    if (!recording && t - lastRun >= 0.1) { lastRun = t; recognize(t); }
+  }
+  function signLoop() {
+    if (!signRunning) return;
+    var v = tiles.me && tiles.me.video;
+    if (landmarker && v && v.readyState >= 2 && v.currentTime !== lastVT) {
+      lastVT = v.currentTime;
+      try { var r = landmarker.detectForVideo(v, performance.now()); onResult(r && r.landmarks ? r.landmarks : [], performance.now() / 1000, v); } catch (e) { /* skip frame */ }
+    }
+    raf = requestAnimationFrame(signLoop);
+  }
+  var VISION = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+  var MODEL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
+  function loadLandmarker() {
+    var dynImport = new Function("u", "return import(u)");
+    return dynImport(VISION + "/vision_bundle.mjs").then(function (m) {
+      return m.FilesetResolver.forVisionTasks(VISION + "/wasm").then(function (fs) {
+        var make = function (d) { return m.HandLandmarker.createFromOptions(fs, { baseOptions: { modelAssetPath: MODEL, delegate: d }, runningMode: "VIDEO", numHands: 2,
+          minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 }); };
+        return make("GPU").catch(function () { return make("CPU"); });
+      });
+    });
+  }
+  function startSign() {
+    if (!cfg().sign || !hasVideo()) return;
+    $("signpanel").hidden = false; loadTemplates();
+    var t = tiles.me; sigCanvas = document.createElement("canvas"); sigCtx = sigCanvas.getContext("2d"); t.el.insertBefore(sigCanvas, t.el.children[1]);
+    status("Loading the sign-language reader (first time only)…");
+    loadLandmarker().then(function (lm) { landmarker = lm; signRunning = true; lastHandT = performance.now() / 1000; status("Sign reader ready — just sign. Everyone sees your words as subtitles."); signLoop(); })
+      .catch(function (e) { status("Could not load the sign reader (internet needed once): " + (e && e.message ? e.message : e)); });
+  }
+  function recordSample() {
+    var w = ($("newword").value || "").trim().toLowerCase();
+    if (!w) { status("Type the word you want to teach first."); return; }
+    if (!signRunning) { status("Wait until the sign reader is ready."); return; }
+    if (recording) return;
+    var n = 3, badge = $("recbadge"); badge.style.display = "inline-block";
+    (function count() {
+      if (n > 0) { badge.textContent = "Get ready… " + n; n--; setTimeout(count, 1000); return; }
+      recBuf = []; recording = true; badge.textContent = "● SIGN NOW";
+      setTimeout(function () {
+        recording = false; badge.style.display = "none";
+        var first = recBuf.findIndex(function (f) { return f.hand; });
+        var last = recBuf.length - 1 - recBuf.slice().reverse().findIndex(function (f) { return f.hand; });
+        var clip = first >= 0 ? recBuf.slice(first, last + 1) : [], seq = clip.length >= 8 ? featureSeq(clip) : null;
+        if (!seq) { status("I could not see your hand clearly. Try again."); return; }
+        templates[w] = (templates[w] || []).concat([seq.map(function (r) { return r.map(function (x) { return Math.round(x * 1000) / 1000; }); })]).slice(-6);
+        saveTemplates(); minT = performance.now() / 1000;
+        status("Saved sample " + templates[w].length + " for “" + w.toUpperCase() + "”. Record 2–3 samples.");
+      }, 1800);
+    })();
+  }
+
+  // ================================================================ join / controls
+  function gUM(c) { return navigator.mediaDevices.getUserMedia(c); }
+  function join() {
+    var c = cfg(), btn = $("joinbtn"); btn.disabled = true; $("jstatus").textContent = "Asking for your camera and microphone…";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
+      $("jstatus").textContent = "This browser or address cannot do video calls. Use Chrome/Edge on https:// or localhost."; btn.disabled = false; return;
+    }
+    var want = { video: c.cam ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } } : false,
+      audio: c.mic ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false };
+    var p = (want.video || want.audio) ? gUM(want) : Promise.resolve(new MediaStream());
+    p.catch(function () { return want.video && want.audio ? gUM({ audio: want.audio }).catch(function () { return new MediaStream(); }) : new MediaStream(); })
+      .then(function (s) {
+        localStream = s; micOn = hasAudio(); camOn = hasVideo();
+        if (c.cam && !hasVideo()) status("Camera not available — you joined without video.");
+        $("join").hidden = true; $("call").hidden = false; joined = true;
+        var me = makeTile("me", args.me.name, args.me.role, true);
+        if (hasVideo()) { me.video.srcObject = localStream; var pr = me.video.play(); if (pr && pr.catch) pr.catch(function () {}); }
+        updateVideoState(me); if (hasAudio()) watchLevel("me", localStream);
+        $("bMic").style.display = c.mic ? "" : "none"; $("bCam").style.display = c.cam ? "" : "none"; $("bView").style.display = audioOnly() ? "none" : "";
+        $("bSpeech").style.display = (c.mic && SR) ? "" : "none";
+        micBtn(); camBtn();
+        if (c.speech && hasAudio() && SR) { speechOn = true; startSpeech(); }
+        setSpeechBtn();
+        queue({ t: "hello" });
+        syncPeers(args.peers || []); handleSignals(args.signals);
+        startSign(); layout(); setHeight();
+      });
+  }
+  function micBtn() { var b = $("bMic"); b.setAttribute("aria-pressed", micOn ? "true" : "false"); b.classList.toggle("off", !micOn); b.querySelector(".ic").textContent = micOn ? "🎤" : "🔇"; b.querySelector(".tx").textContent = micOn ? "Mute" : "Unmute"; }
+  function camBtn() { var b = $("bCam"); b.setAttribute("aria-pressed", camOn ? "true" : "false"); b.classList.toggle("off", !camOn); b.querySelector(".ic").textContent = camOn ? "🎥" : "🚫"; b.querySelector(".tx").textContent = camOn ? "Stop video" : "Start video"; }
+  function broadcastState() { Object.keys(peers).forEach(function (k) { if (peers[k].dc && peers[k].dc.readyState === "open") sendState(peers[k].dc); }); var me = tiles.me; if (me) { me.mic = micOn; me.hand = handUp; setNameLabel(me); setBadges(me); } }
+
+  $("joinbtn").addEventListener("click", join);
+  $("bMic").addEventListener("click", function () {
+    if (!hasAudio()) { status("No microphone available."); return; }
+    micOn = !micOn; localStream.getAudioTracks().forEach(function (t) { t.enabled = micOn; }); micBtn(); broadcastState();
+    if (!micOn) stopSpeech(); else if (speechOn) startSpeech();
+  });
+  $("bCam").addEventListener("click", function () {
+    if (!hasVideo()) { status("No camera available."); return; }
+    camOn = !camOn; localStream.getVideoTracks().forEach(function (t) { t.enabled = camOn; }); camBtn(); updateVideoState(tiles.me); broadcastState();
+  });
+  $("bView").addEventListener("click", function () {
+    mode = mode === "grid" ? "spk" : "grid"; $("bView").setAttribute("aria-pressed", mode === "spk" ? "true" : "false");
+    $("bView").querySelector(".tx").textContent = mode === "spk" ? "Grid view" : "Speaker view"; layout();
+  });
+  $("bCaps").addEventListener("click", function () { capsVisible = !capsVisible; $("bCaps").setAttribute("aria-pressed", capsVisible ? "true" : "false"); $("bCaps").classList.toggle("off", !capsVisible); renderCaps(); });
+  $("bSpeech").addEventListener("click", function () {
+    if (!hasAudio()) return; speechOn = !speechOn; setSpeechBtn();
+    if (speechOn && micOn) { startSpeech(); status("Your speech now appears as subtitles for everyone."); } else { stopSpeech(); status("Speech subtitles off."); }
+  });
+  $("bHand").addEventListener("click", function () { handUp = !handUp; $("bHand").setAttribute("aria-pressed", handUp ? "true" : "false"); broadcastState(); });
+  $("sUndo").addEventListener("click", function () { words.pop(); confs.pop(); lastWord = null; needRelease = false; showSentence(false); });
+  $("sClear").addEventListener("click", function () { words = []; confs = []; lastWord = null; needRelease = false; $("sentence").textContent = "…"; setHeight(); });
+  $("sSend").addEventListener("click", finishSentence);
+  $("recbtn").addEventListener("click", recordSample);
+  document.querySelectorAll("details").forEach(function (d) { d.addEventListener("toggle", setHeight); });
+
+  var ready = false;
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    args = Object.assign(args, event.data.args || {});
+    if (!ready) {
+      ready = true; var c = cfg(), btn = $("joinbtn");
+      btn.disabled = false;
+      if (c.show_video === false) { $("jtitle").textContent = "Join the meeting by voice"; $("jtext").textContent = "You will hear everyone and everyone will hear you. No camera is needed."; btn.textContent = "🔊 Join with microphone"; }
+      else if (c.sign) { $("jtitle").textContent = "Join with sign-language subtitles"; $("jtext").textContent = "Everyone will see your video. Your signs are read on your own device and shown as live subtitles to the whole meeting."; btn.textContent = "🎥 Join with camera"; }
+      else { btn.textContent = "🎥 Join with camera & microphone"; }
+    }
+    if (args.ack && args.ack === waitingAck) waitingAck = null;
+    if (joined) { syncPeers(args.peers || []); handleSignals(args.signals); }
+    flush(); setHeight();
+  });
+
+  if (window.ResizeObserver) new ResizeObserver(setHeight).observe(root);
+  [200, 600, 1500, 3000].forEach(function (ms) { setTimeout(setHeight, ms); });
+  window.addEventListener("load", setHeight);
+  post("streamlit:componentReady", { apiVersion: 1 });
+  setHeight();
+
+  window.__sign_test = { buildHand: buildHand, buildFrame: buildFrame, analyze: analyze, featureSeq: featureSeq, matchCustom: matchCustom,
+    swings: swings, onResult: function (l, t) { onResult(l, t, null); }, setTemplates: function (t) { templates = t; },
+    finishSentence: finishSentence, state: function () { return { words: words.slice() }; } };
+  window.__vc = { stats: function () { return Promise.all(Object.keys(peers).map(function (k) { return peers[k].pc.getStats().then(function (r) {
+      var o = { name: peers[k].name, vb: 0, ab: 0 }; r.forEach(function (x) { if (x.type === "inbound-rtp") { if (x.kind === "video") o.vb += x.bytesReceived; else o.ab += x.bytesReceived; } }); return o; }); })); },
+    log: function () { return DLOG.slice(); }, sid: SID, peers: function () { return Object.keys(peers).map(function (k) { var p = peers[k]; return { sid: k, name: p.name, state: p.pc.connectionState,
+    ice: p.pc.iceConnectionState, sig: p.pc.signalingState, init: p.initiator, lc: ((p.pc.localDescription && p.pc.localDescription.sdp.match(/a=candidate/g)) || []).length, rc: ((p.pc.remoteDescription && p.pc.remoteDescription.sdp.match(/a=candidate/g)) || []).length,
+    video: !!(p.stream && p.stream.getVideoTracks().length), audio: !!(p.stream && p.stream.getAudioTracks().length), dc: !!(p.dc && p.dc.readyState === "open") }; }); },
+    caps: function () { return JSON.parse(JSON.stringify(caps)); }, joined: function () { return joined; } };
+})();
+</script>
+</body>
+</html>

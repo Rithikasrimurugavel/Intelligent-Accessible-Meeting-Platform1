@@ -1,0 +1,6 @@
+# OPTIONAL: only for "Summarize Post Meeting -> From a recording". Also install ffmpeg (system program).
+-r requirements.txt
+torch>=2.3
+openai-whisper
+pyannote.audio>=3.1,<4
+scipy

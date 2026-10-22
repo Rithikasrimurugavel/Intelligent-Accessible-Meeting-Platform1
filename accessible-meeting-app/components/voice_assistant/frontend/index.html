@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; background: transparent; font-family: "Segoe UI", Arial, sans-serif; }
+  #card { background: #0f172a; color: #f8fafc; border: 3px solid #eab308; border-radius: 14px; padding: 14px 16px; }
+  #row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  button#toggle { font-size: 1.25rem; font-weight: 700; padding: 14px 22px; border-radius: 12px; border: 3px solid #fde047;
+    background: #eab308; color: #111827; cursor: pointer; min-height: 56px; }
+  button#toggle:focus { outline: 4px solid #ffffff; outline-offset: 3px; }
+  button#toggle.on { background: #16a34a; border-color: #bbf7d0; color: #fff; }
+  button#toggle.paused { background: #f97316; border-color: #fed7aa; color: #111827; }
+  #dot { width: 18px; height: 18px; border-radius: 50%; background: #64748b; flex: none; }
+  #dot.listening { background: #22c55e; box-shadow: 0 0 0 6px rgba(34,197,94,.3); }
+  #dot.speaking { background: #38bdf8; box-shadow: 0 0 0 6px rgba(56,189,248,.3); }
+  #status { font-size: 1.1rem; font-weight: 600; }
+  #heard, #said { margin-top: 8px; font-size: 1rem; color: #cbd5e1; min-height: 1.2em; }
+  #heard b, #said b { color: #fde047; }
+  #hint { margin-top: 6px; font-size: .85rem; color: #94a3b8; }
+</style>
+</head>
+<body>
+<div id="card" role="region" aria-label="Voice assistant">
+  <div id="row">
+    <button id="toggle" type="button" aria-describedby="status">🎙️ Start voice assistant</button>
+    <span id="dot" aria-hidden="true"></span>
+    <span id="status" role="status" aria-live="polite">Voice assistant is off. Press Enter or Space to start.</span>
+  </div>
+  <div id="heard" aria-hidden="true"></div>
+  <div id="said" aria-hidden="true"></div>
+  <div id="hint">Works in Chrome or Edge. Press Escape to stop me talking. Say “help” for commands.</div>
+</div>
+
+<script>
+(function () {
+  // ---------- Streamlit component protocol (no build step needed) ----------
+  function post(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type: type }, data || {}), "*"); }
+  function sendValue(v) { post("streamlit:setComponentValue", { value: v, dataType: "json" }); }
+  function setHeight() { post("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight + 4 }); }
+
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var synth = window.speechSynthesis;
+  var args = { queue: [], listening: true, lang: "en-US", rate: 1.0, sid: "" };
+  var active = false, speaking = false, rec = null, counter = 0, keepAlive = [], restartTimer = null;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var btn = $("toggle"), dot = $("dot"), statusEl = $("status"), heardEl = $("heard"), saidEl = $("said");
+
+  function setStatus(text, mode) {
+    statusEl.textContent = text;
+    dot.className = mode || "";
+    btn.className = !active ? "" : (args.listening ? "on" : "paused");
+    btn.textContent = !active ? "🎙️ Start voice assistant" : (args.listening ? "⏹️ Stop voice assistant" : "▶️ Resume listening");
+    setHeight();
+  }
+
+  // ---------- speaking ----------
+  function lastSpoken() {
+    try { var o = JSON.parse(sessionStorage.getItem("va_last") || "{}"); return o.sid === args.sid ? (o.id || 0) : 0; } catch (e) { return 0; }
+  }
+  function setLastSpoken(id) { try { sessionStorage.setItem("va_last", JSON.stringify({ sid: args.sid, id: id })); } catch (e) {} }
+
+  function chunks(text) {
+    var parts = text.match(/[^.!?;]+[.!?;]*/g) || [text], out = [], cur = "";
+    parts.forEach(function (p) {
+      if ((cur + p).length > 180 && cur) { out.push(cur); cur = p; } else { cur += p; }
+    });
+    if (cur.trim()) out.push(cur);
+    return out;
+  }
+
+  function pickVoice() {
+    var voices = synth.getVoices() || [], lang = (args.lang || "en-US").toLowerCase();
+    return voices.find(function (v) { return v.lang.toLowerCase() === lang; }) ||
+           voices.find(function (v) { return v.lang.toLowerCase().indexOf(lang.split("-")[0]) === 0; }) || null;
+  }
+
+  function speakText(text, done) {
+    if (!synth) { done(); return; }
+    stopListening();
+    speaking = true;
+    saidEl.innerHTML = "<b>Assistant:</b> " + text.replace(/</g, "&lt;");
+    setStatus("Speaking…", "speaking");
+    var parts = chunks(text), i = 0;
+    (function next() {
+      if (!speaking) return;                               // cancelled with Escape
+      if (i >= parts.length) { speaking = false; keepAlive = []; done(); return; }
+      var u = new SpeechSynthesisUtterance(parts[i++].trim());
+      u.lang = args.lang || "en-US"; u.rate = args.rate || 1.0;
+      var v = pickVoice(); if (v) u.voice = v;
+      u.onend = next; u.onerror = next;
+      keepAlive.push(u);                                    // Chrome may garbage-collect utterances otherwise
+      synth.speak(u);
+    })();
+  }
+
+  function beep() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)(), o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
+      o.start(); setTimeout(function () { o.stop(); ctx.close(); }, 110);
+    } catch (e) {}
+  }
+
+  function pump() {
+    if (!active || speaking) return;
+    var last = lastSpoken();
+    var items = (args.queue || []).filter(function (q) { return q.id > last; });
+    if (!items.length) { startListening(); return; }
+    var item = items[0];
+    setLastSpoken(item.id);
+    if (item.beep) { beep(); setTimeout(pump, 140); return; }
+    speakText(item.text, function () { setTimeout(pump, 150); });
+  }
+
+  // ---------- listening ----------
+  function startListening() {
+    if (!SR || !active || speaking || !args.listening || rec) { refreshIdle(); return; }
+    rec = new SR();
+    rec.lang = args.lang || "en-US"; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+    rec.onresult = function (e) {
+      var interim = "";
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var r = e.results[i], t = (r[0].transcript || "").trim();
+        if (r.isFinal) { if (t) { heardEl.innerHTML = "<b>You said:</b> " + t.replace(/</g, "&lt;"); emit(t, r[0].confidence); } }
+        else { interim += t + " "; }
+      }
+      if (interim) heardEl.innerHTML = "<b>Hearing:</b> " + interim.replace(/</g, "&lt;");
+    };
+    rec.onerror = function (e) {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        active = false; stopListening();
+        setStatus("Microphone is blocked. Allow the microphone in the browser address bar, then press the button.", "");
+        sendValue({ id: "err-" + Date.now(), type: "error", text: "Microphone permission was denied." });
+      } else if (e.error === "network") {
+        setStatus("Speech service unreachable. Speech recognition needs an internet connection.", "");
+      }
+    };
+    rec.onend = function () {
+      rec = null;
+      if (active && !speaking && args.listening) { clearTimeout(restartTimer); restartTimer = setTimeout(startListening, 300); }
+    };
+    try { rec.start(); refreshIdle(); } catch (e) { rec = null; }
+  }
+  function stopListening() {
+    clearTimeout(restartTimer);
+    if (rec) { var r = rec; rec = null; r.onend = null; try { r.abort(); } catch (e) {} }
+  }
+  function refreshIdle() {
+    if (!active) setStatus("Voice assistant is off. Press Enter or Space to start.", "");
+    else if (speaking) setStatus("Speaking…", "speaking");
+    else if (!args.listening) setStatus("Paused. Press the button or Space to resume.", "");
+    else setStatus("Listening… speak now.", "listening");
+  }
+
+  function emit(text, conf) {
+    counter++;
+    sendValue({ id: Date.now() + "-" + counter, type: "speech", text: text, confidence: conf || null });
+  }
+
+  // ---------- user actions ----------
+  btn.addEventListener("click", function () {
+    if (!SR) {
+      setStatus("This browser cannot listen continuously. Please use Chrome or Edge, or use the record button below.", "");
+      sendValue({ id: "unsup-" + Date.now(), type: "unsupported", text: "Speech recognition is not supported in this browser." });
+      return;
+    }
+    if (active && !args.listening) {                       // resume after "stop listening"
+      sendValue({ id: "resume-" + Date.now(), type: "control", action: "resume" });
+      refreshIdle(); return;
+    }
+    active = !active;
+    if (active) { pump(); } else { speaking = false; if (synth) synth.cancel(); stopListening(); }
+    refreshIdle();
+  });
+
+  function cancelSpeech() {
+    if (!speaking) return;
+    speaking = false; if (synth) synth.cancel(); keepAlive = [];
+    setTimeout(pump, 100);
+  }
+  function onKey(e) { if (e.key === "Escape") cancelSpeech(); }
+  document.addEventListener("keydown", onKey);
+  try { window.parent.document.addEventListener("keydown", onKey); } catch (e) {}
+
+  if (synth) { synth.onvoiceschanged = function () {}; }
+
+  // ---------- render from Streamlit ----------
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== "streamlit:render") return;
+    var a = event.data.args || {};
+    var wasListening = args.listening;
+    args = Object.assign(args, a);
+    if (active) {
+      if (!args.listening && wasListening) { stopListening(); }
+      pump();
+    }
+    refreshIdle();
+  });
+
+  post("streamlit:componentReady", { apiVersion: 1 });
+  setHeight();
+  try { if (window.frameElement) window.frameElement.focus(); } catch (e) {}
+  setTimeout(function () { try { btn.focus(); } catch (e) {} }, 300);
+})();
+</script>
+</body>
+</html>
